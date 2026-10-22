@@ -212,14 +212,16 @@ __global__ void segment_reduce_backward_kernel(
       }
     }
     // Average gradient based on number of maximum elements in the
-    // segment
+    // segment. Select the same elements as above instead of relying on the
+    // sign of the gradient, so that negative gradients are split evenly too.
     if (counter < 2) {
       return;
     }
     for (int64_t j = offset_start; j < offset_end; ++j) {
       int64_t data_index = outer_idx * data_stride_axis * data_size_axis
                            + j * data_stride_axis + lane_id;
-      if (grad_input_data[data_index] > 0) {
+      if (at::_isnan(values_data[data_index]) ||
+          values_data[data_index] == output_data[output_index]) {
         grad_input_data[data_index] =
             grad_input_data[data_index] / counter;
       }

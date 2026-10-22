@@ -553,6 +553,37 @@ class TestSegmentReductions(TestCase):
                     check_backward,
                 )
 
+    @dtypes(
+        *product(
+            (torch.half, torch.bfloat16, torch.float, torch.double),
+            (torch.int, torch.int64),
+        )
+    )
+    @parametrize("reduce", ["max", "min"])
+    def test_max_min_backward_ties(self, device, dtypes, reduce):
+        # With ties, the gradient must be split evenly between the tied elements
+        # for any sign of the incoming gradient, so that it sums to the incoming
+        # gradient over the segment (as for amax/amin).
+        val_dtype, length_dtype = dtypes
+        sign = 1 if reduce == "max" else -1
+        # segments: [2, 2, 1] (two ties), [5], [3, 3, 3, 0] (three ties)
+        data_arr = [sign * v for v in (2, 2, 1, 5, 3, 3, 3, 0)]
+        lengths = torch.tensor([3, 1, 4], device=device, dtype=length_dtype)
+        offsets = torch.cat((lengths.new_zeros(1), lengths)).cumsum_(0)
+        for g0, g1, g2 in ((1, 1, 1), (-1, -1, -1), (-2, 4, 0), (3, -3, -6)):
+            grad = torch.tensor([g0, g1, g2], device=device, dtype=val_dtype)
+            expected_grad = torch.tensor(
+                [g0 / 2, g0 / 2, 0, g1, g2 / 3, g2 / 3, g2 / 3, 0],
+                device=device,
+                dtype=val_dtype,
+            )
+            for kwargs in (dict(lengths=lengths), dict(offsets=offsets)):
+                data = torch.tensor(
+                    data_arr, device=device, dtype=val_dtype, requires_grad=True
+                )
+                torch._segment_reduce(data=data, reduce=reduce, **kwargs).backward(grad)
+                self.assertEqual(expected_grad, data.grad, rtol=1e-02, atol=1e-05)
+
     @dtypes(torch.int, torch.int64)
     def test_unsafe_flag(self, device, dtype):
         length_type = dtype

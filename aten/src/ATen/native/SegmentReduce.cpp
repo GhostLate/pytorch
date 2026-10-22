@@ -261,14 +261,17 @@ void _segment_reduce_cpu_lengths_backward_kernel1(
                   }
                 }
                 // Average gradient based on number of maximum elements in
-                // the segment
+                // the segment. Select the same elements as above instead of
+                // relying on the sign of the gradient, so that negative
+                // gradients are split evenly too.
                 if (counter < 2) {
                   continue;
                 }
                 for (const auto j : c10::irange(segment_start, segment_end)) {
                   int64_t data_index = outer_idx * data_stride_axis * data_size_axis
                                        + j * data_stride_axis + inner_idx;
-                  if (grad_input_data[data_index] > 0) {
+                  if (at::_isnan(values_data[data_index]) ||
+                      values_data[data_index] == output_data[output_index]) {
                     grad_input_data[data_index] =
                         grad_input_data[data_index] / counter;
                   }
